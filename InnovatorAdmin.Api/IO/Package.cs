@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
@@ -282,6 +283,11 @@ namespace InnovatorAdmin
 
     public static void Write(this IPackage package, InstallScript script)
     {
+      Write(package, script, null);
+    }
+
+    public static void Write(this IPackage package, InstallScript script, Action<int> progress)
+    {
       if (package is ZipPackage zip)
       {
         zip.Properties.Created = script.Created;
@@ -331,7 +337,6 @@ namespace InnovatorAdmin
           }
         }
 
-
         foreach (var line in script.Lines)
         {
           if (line.Type == InstallType.Warning)
@@ -351,6 +356,10 @@ namespace InnovatorAdmin
         }
         manifestWriter.WriteEndElement();
 
+        var scriptLines = script.Lines
+          .Where(l => l.Type != InstallType.Warning && l.Type != InstallType.DependencyCheck)
+          .ToList();
+        var linesWritten = 0;
         Action<InstallItem> writeFunc = line =>
         {
           if (line.Reference.Type == "Report" && line.Type != InstallType.Script)
@@ -367,9 +376,15 @@ namespace InnovatorAdmin
               writer.WriteEndElement();
             }
           }
+
+          if (progress != null)
+          {
+            Interlocked.Increment(ref linesWritten);
+            var percent = (int)(linesWritten * 100.0 / scriptLines.Count);
+            progress(percent);
+          }
         };
 
-        var scriptLines = script.Lines.Where(l => l.Type != InstallType.Warning && l.Type != InstallType.DependencyCheck);
         if (package is DirectoryPackage)
         {
           Parallel.ForEach(scriptLines, writeFunc);
